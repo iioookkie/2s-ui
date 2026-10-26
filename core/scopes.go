@@ -11,6 +11,7 @@ import (
 	"github.com/sagernet/sing-box/common/taskmonitor"
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/log"
+	"github.com/sagernet/sing/common"
 	E "github.com/sagernet/sing/common/exceptions"
 )
 
@@ -155,6 +156,14 @@ func (s *scopeSet) closeEntry(entry *scopeEntry) error {
 	monitor.Start("close ", entry.name)
 	err := closeGuarded(s.logger, entry.name, cleanup)
 	monitor.Finish()
+	// Like adapter.Scope.Close since 1.14.4: a cleanup reporting that its
+	// component was already closed or cancelled is not a teardown failure. Each
+	// part is judged on its own, and before the name is wrapped around it: once
+	// wrapped, errors.Is would find a closed error anywhere inside and drop the
+	// real failure next to it.
+	err = E.Errors(common.Filter(E.Expand(err), func(it error) bool {
+		return !E.IsClosed(it) && !E.IsCanceled(it)
+	})...)
 	if err != nil {
 		return E.Cause(err, "close ", entry.name)
 	}
