@@ -12,7 +12,10 @@ import (
 // OpenVPN endpoint keeps the CA of the server it connects to -- so saving a
 // template that serves an inbound too silently dropped the endpoint's CA.
 func TestSetCertFingerprintKeepsTheEndpointCA(t *testing.T) {
-	lines := (&ServerService{}).GenKeypair("tls", "example.com")
+	lines, err := (&ServerService{}).GenKeypair("tls", "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
 	server, _ := json.Marshal(map[string]interface{}{"enabled": true, "certificate": lines})
 	row := &model.Tls{
 		Server: server,

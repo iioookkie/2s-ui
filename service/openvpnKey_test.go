@@ -19,7 +19,10 @@ import (
 // parses it as those exact lines. Both ends of a tunnel carry the same one.
 func TestGenerateOpenVPNStaticKey(t *testing.T) {
 	var server ServerService
-	lines := server.GenKeypair("openvpn", "")
+	lines, err := server.GenKeypair("openvpn", "")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if len(lines) < 3 {
 		t.Fatalf("got %d lines: %v", len(lines), lines)
@@ -71,7 +74,10 @@ func TestGeneratedOpenVPNStaticKeyBuildsAnEndpoint(t *testing.T) {
 	logger.InitLogger(logging.CRITICAL)
 
 	var server ServerService
-	key := server.GenKeypair("openvpn", "")
+	key, err := server.GenKeypair("openvpn", "")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	raw, err := json.Marshal(map[string]any{
 		"log": map[string]any{"level": "error"},
@@ -114,8 +120,16 @@ func TestGeneratedOpenVPNStaticKeyBuildsAnEndpoint(t *testing.T) {
 // would be sharing it.
 func TestGenerateOpenVPNStaticKeyIsRandom(t *testing.T) {
 	var server ServerService
-	first := strings.Join(server.GenKeypair("openvpn", ""), "\n")
-	second := strings.Join(server.GenKeypair("openvpn", ""), "\n")
+	firstLines, err := server.GenKeypair("openvpn", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondLines, err := server.GenKeypair("openvpn", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := strings.Join(firstLines, "\n")
+	second := strings.Join(secondLines, "\n")
 	if first == second {
 		t.Error("two generated keys are identical")
 	}

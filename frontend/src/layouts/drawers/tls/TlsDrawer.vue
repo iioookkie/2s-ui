@@ -25,7 +25,7 @@
     </div>
 
     <Field v-if="inTls.server_name != undefined" label="SNI">
-      <input class="input mono" v-model="inTls.server_name" placeholder="www.cloudflare.com" />
+      <input ref="sniInput" class="input mono" v-model="inTls.server_name" placeholder="www.cloudflare.com" />
     </Field>
 
     <!-- ===================== TLS mode ===================== -->
@@ -268,13 +268,13 @@
 
     <!-- ===================== ECH ===================== -->
     <MSwitchRow v-model="echEnabled" :label="$t('ui.echTitle')" :desc="$t('ui.echDesc')" />
-    <Ech :iTls="inTls" :oTls="outTls" />
+    <Ech :iTls="inTls" :oTls="outTls" :requireSni="requireSni" />
   </MDrawer>
 </template>
 
 <script lang="ts" setup>
 import Select from '@/components/ui/Select.vue'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { push } from 'notivue'
 import Data from '@/store/modules/data'
@@ -370,8 +370,19 @@ const changeTlsType = () => {
 
 const saveChanges = async () => {
   if (!props.visible) return
+  // The SNI goes into every share link and subscription. A pasted name keeps
+  // its stray spaces, which the generated certificate does not have (the panel
+  // trims before issuing), and a blank one -- the field switched on and left
+  // empty, as requireSni does -- became sni= / servername: "". Send it trimmed,
+  // or not at all. A copy, so a refused save leaves the form as the operator
+  // left it: deleting the key would take the SNI field off screen. The panel
+  // does the same on its side for every other writer.
+  const data = JSON.parse(JSON.stringify(tlsData.value))
+  const sni = data.server?.server_name?.trim()
+  if (sni) data.server.server_name = sni
+  else if (data.server) delete data.server.server_name
   loading.value = true
-  const success = await Data().save('tls', tlsData.value.id > 0 ? 'edit' : 'new', tlsData.value)
+  const success = await Data().save('tls', tlsData.value.id > 0 ? 'edit' : 'new', data)
   if (success) emit('close')
   loading.value = false
 }
@@ -417,23 +428,32 @@ const splitPem = (lines: string[]): { key: string[]; cert: string[] } => {
   return { key, cert }
 }
 
+// A self-signed certificate and ECH keys are both generated for the SNI, and
+// the panel refuses an empty one. The field is off by default, tucked into the
+// TLS Options menu, so the refusal alone named nothing on screen: switch it on
+// and put the cursor there instead of sending a request bound to fail.
+const sniInput = ref<HTMLInputElement>()
+const requireSni = (): boolean => {
+  if ((inTls.value.server_name ?? '').trim() != '') return true
+  inTls.value.server_name = inTls.value.server_name ?? ''
+  nextTick(() => sniInput.value?.focus())
+  push.error({ message: t('tls.sniRequired') })
+  return false
+}
+
 const genSelfSigned = async () => {
+  if (!requireSni()) return
   loading.value = true
-  const msg = await HttpUtils.get('api/keypairs', { k: 'tls', o: inTls.value.server_name ?? "''" })
+  const msg = await HttpUtils.get('api/keypairs', { k: 'tls', o: inTls.value.server_name })
   loading.value = false
+  // A failure is success:false, already shown by HttpUtils; success has lines.
   if (msg.success) {
     inTls.value.key_path = undefined
     inTls.value.certificate_path = undefined
     usePath.value = 1
-    if (msg.obj.length > 0) {
-      const { key, cert } = splitPem(msg.obj)
-      inTls.value.key = key
-      inTls.value.certificate = cert
-    } else {
-      push.error({
-        message: t('failed') + ': ' + msg.obj,
-      })
-    }
+    const { key, cert } = splitPem(msg.obj)
+    inTls.value.key = key
+    inTls.value.certificate = cert
   }
 }
 
@@ -559,10 +579,6 @@ const genRealityKey = async () => {
           outTls.value.reality.public_key = line.substring(11)
         }
       }
-    })
-  } else {
-    push.error({
-      message: t('failed') + ': ' + msg.obj,
     })
   }
 }

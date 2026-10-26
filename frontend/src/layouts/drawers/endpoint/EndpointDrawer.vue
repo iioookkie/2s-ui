@@ -46,8 +46,6 @@
 <script lang="ts" setup>
 import Select from '@/components/ui/Select.vue'
 import { computed, ref, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { push } from 'notivue'
 import Data from '@/store/modules/data'
 import HttpUtils from '@/plugins/httputil'
 import RandomUtil from '@/plugins/randomUtil'
@@ -71,8 +69,6 @@ const props = defineProps<{
   tlsConfigs?: any[]
 }>()
 const emit = defineEmits<{ close: [] }>()
-
-const { t } = useI18n({ useScope: 'global' })
 
 const epTypes = EpTypes
 // Endpoints that terminate or present TLS can reuse a panel TLS config.
@@ -188,11 +184,8 @@ const genWgKey = async (): Promise<{ private_key: string; public_key: string }> 
         result.public_key = line.substring(11)
       }
     })
-  } else {
-    push.error({
-      message: t('failed') + ': ' + msg.obj,
-    })
   }
+  // A failure is already on screen: HttpUtils shows the server's message.
   return result
 }
 

@@ -3,6 +3,7 @@ package util
 import (
 	"encoding/json"
 	"net/netip"
+	"strings"
 
 	"github.com/shenaba/2s-ui/util/common"
 
@@ -113,6 +114,31 @@ var endpointOnlyTlsFields = []string{"client_certificate", "client_certificate_p
 // ech object; the client-side ech fields (config, config_path, ...) stay.
 var serverOnlyEchFields = []string{"key", "key_path"}
 
+// TlsServerName is a TLS object's SNI as it should reach a client: trimmed,
+// and "" for none. A stored one can carry the stray spaces of a paste, or be
+// blank -- SNI switched on and left empty -- and a client sends either as given,
+// as sni= or servername: "". Every place that hands an SNI on reads it here.
+func TlsServerName(tls map[string]interface{}) string {
+	name, _ := tls["server_name"].(string)
+	return strings.TrimSpace(name)
+}
+
+// NormalizeTlsServerName rewrites a TLS object's SNI in place the way
+// TlsServerName reads it, dropping a blank one, and reports whether it changed.
+func NormalizeTlsServerName(tls map[string]interface{}) bool {
+	raw, ok := tls["server_name"]
+	if !ok {
+		return false
+	}
+	name := TlsServerName(tls)
+	if name == "" {
+		delete(tls, "server_name")
+		return true
+	}
+	tls["server_name"] = name
+	return raw != name
+}
+
 // StripServerTlsFields removes server-only TLS fields from a client-facing
 // TLS object in place and reports whether anything was removed.
 func StripServerTlsFields(tls map[string]interface{}) bool {
@@ -154,7 +180,7 @@ func addTls(out *map[string]interface{}, tls *model.Tls) {
 	if enabled, ok := tlsServer["enabled"]; ok {
 		tlsConfig["enabled"] = enabled
 	}
-	if serverName, ok := tlsServer["server_name"]; ok {
+	if serverName := TlsServerName(tlsServer); serverName != "" {
 		tlsConfig["server_name"] = serverName
 	}
 	if alpn, ok := tlsServer["alpn"]; ok {

@@ -326,8 +326,8 @@ func (a *ApiService) CheckChanges(c *gin.Context) {
 func (a *ApiService) GetKeypairs(c *gin.Context) {
 	kType := c.Query("k")
 	options := c.Query("o")
-	keypair := a.ServerService.GenKeypair(kType, options)
-	jsonObj(c, keypair, nil)
+	keypair, err := a.ServerService.GenKeypair(kType, options)
+	jsonObj(c, keypair, err)
 }
 
 func (a *ApiService) GetDb(c *gin.Context) {

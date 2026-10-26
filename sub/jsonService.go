@@ -175,9 +175,11 @@ func (j *JsonService) getOutbounds(clientConfig json.RawMessage, inbounds []*mod
 		if protocol, _ := outbound["type"].(string); protocol == "" {
 			continue
 		}
-		// Stored out_json may predate the server-only-field filter (#51).
+		// Stored out_json may predate the server-only-field filter (#51), and
+		// the SNI being trimmed with a blank one dropped.
 		if outTlsBase, ok := outbound["tls"].(map[string]interface{}); ok {
 			util.StripServerTlsFields(outTlsBase)
+			util.NormalizeTlsServerName(outTlsBase)
 		}
 		// Stored out_json may predate the IPv6 normalisation in FillOutJson and
 		// still hold a bracketed literal, which sing-box would resolve as a

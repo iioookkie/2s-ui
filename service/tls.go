@@ -39,6 +39,7 @@ func (s *TlsService) Save(tx *gorm.DB, action string, data json.RawMessage, host
 		if err != nil {
 			return false, err
 		}
+		normalizeServerName(&tls)
 		setCertFingerprint(&tls)
 		err = tx.Save(&tls).Error
 		if err != nil {
@@ -124,6 +125,26 @@ func (s *TlsService) Save(tx *gorm.DB, action string, data json.RawMessage, host
 	}
 
 	return restartCore, nil
+}
+
+// normalizeServerName stores the SNI trimmed, or not at all when it is blank.
+// It goes into every share link and subscription as stored: a pasted name keeps
+// stray spaces the certificate the panel issued for it does not have, and a
+// blank one -- SNI switched on and left empty -- became sni= / servername: "".
+// The SPA does the same before it saves; this covers apiv2 and every other
+// writer. Rows stored before it are read through util.TlsServerName wherever an
+// SNI is handed on, so they need no migration.
+func normalizeServerName(t *model.Tls) {
+	var server map[string]interface{}
+	if len(t.Server) == 0 || json.Unmarshal(t.Server, &server) != nil || server == nil {
+		return
+	}
+	if !util.NormalizeTlsServerName(server) {
+		return
+	}
+	if newServer, err := json.MarshalIndent(server, "", "  "); err == nil {
+		t.Server = newServer
+	}
 }
 
 func setCertFingerprint(t *model.Tls) {

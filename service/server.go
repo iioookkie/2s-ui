@@ -20,6 +20,7 @@ import (
 	"github.com/shenaba/2s-ui/database"
 	"github.com/shenaba/2s-ui/database/model"
 	"github.com/shenaba/2s-ui/logger"
+	"github.com/shenaba/2s-ui/util/common"
 
 	"github.com/sagernet/sing-box/common/tls"
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -261,11 +262,10 @@ func (s *ServerService) GetLogs(count string, level string) []string {
 	return logger.GetLogs(c, level)
 }
 
-func (s *ServerService) GenKeypair(keyType string, options string) []string {
-	if len(keyType) == 0 {
-		return []string{"No keypair to generate"}
-	}
-
+// GenKeypair answers with the lines of a generated key, or an error. A failure
+// is never reported as lines: every drawer that calls this splits the answer
+// into its fields, so a message in them was saved as a key or a certificate.
+func (s *ServerService) GenKeypair(keyType string, options string) ([]string, error) {
 	switch keyType {
 	case "ech":
 		return s.generateECHKeyPair(options)
@@ -279,25 +279,69 @@ func (s *ServerService) GenKeypair(keyType string, options string) []string {
 		return s.generateWireGuardKey(options)
 	case "openvpn":
 		return s.generateOpenVPNStaticKey()
+	case "":
+		return nil, common.NewErrorf("no keypair type given")
 	}
-
-	return []string{"Failed to generate keypair"}
+	return nil, common.NewErrorf("unknown keypair type: %s", keyType)
 }
 
-func (s *ServerService) generateECHKeyPair(serverName string) []string {
+// generateECHKeyPair refuses a public name that is not a domain rather than
+// generating a config no client would use: Go's TLS client (pickECHConfig)
+// skips any ECH config whose public_name fails this same check, and the drawers
+// used to send the literal string '' when the server name was empty.
+func (s *ServerService) generateECHKeyPair(serverName string) ([]string, error) {
+	// A pasted name often carries a stray space, which no domain contains.
+	serverName = strings.TrimSpace(serverName)
+	if !validECHPublicName(serverName) {
+		return nil, common.NewErrorf("ECH needs the SNI (server name) to be a domain such as example.com, got %q: clients skip a config whose public name is not one", serverName)
+	}
 	configPem, keyPem, err := tls.ECHKeygenDefault(serverName)
 	if err != nil {
-		return []string{"Failed to generate ECH keypair: ", err.Error()}
+		return nil, common.NewErrorf("failed to generate ECH keypair: %v", err)
 	}
-	return append(strings.Split(configPem, "\n"), strings.Split(keyPem, "\n")...)
+	return append(strings.Split(configPem, "\n"), strings.Split(keyPem, "\n")...), nil
 }
 
-func (s *ServerService) generateTLSKeyPair(serverName string) []string {
+// validECHPublicName is crypto/tls's validDNSName, the test pickECHConfig puts
+// a config's public_name to: at least two labels, letters, digits and inner
+// hyphens only. It is unexported there, so it is copied rather than called.
+func validECHPublicName(name string) bool {
+	if len(name) > 253 {
+		return false
+	}
+	labels := strings.Split(name, ".")
+	if len(labels) <= 1 {
+		return false
+	}
+	for _, label := range labels {
+		if len(label) == 0 {
+			return false
+		}
+		for i, r := range label {
+			if r == '-' && (i == 0 || i == len(label)-1) {
+				return false
+			}
+			if (r < '0' || r > '9') && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && r != '-' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// generateTLSKeyPair issues a self-signed certificate for serverName, which is
+// its only name: an empty one made a certificate valid for no name at all, and
+// one with a stray space a certificate no hostname check could ever match.
+func (s *ServerService) generateTLSKeyPair(serverName string) ([]string, error) {
+	serverName = strings.TrimSpace(serverName)
+	if serverName == "" {
+		return nil, common.NewErrorf("set the SNI (server name) first: the certificate is issued for it")
+	}
 	privateKeyPem, publicKeyPem, err := tls.GenerateCertificate(nil, nil, time.Now, serverName, time.Now().AddDate(0, 12, 0))
 	if err != nil {
-		return []string{"Failed to generate TLS keypair: ", err.Error()}
+		return nil, common.NewErrorf("failed to generate TLS keypair: %v", err)
 	}
-	return append(strings.Split(string(privateKeyPem), "\n"), strings.Split(string(publicKeyPem), "\n")...)
+	return append(strings.Split(string(privateKeyPem), "\n"), strings.Split(string(publicKeyPem), "\n")...), nil
 }
 
 // generateTLSClientKeyPair is generateTLSKeyPair for the other end: a
@@ -307,9 +351,9 @@ func (s *ServerService) generateTLSKeyPair(serverName string) []string {
 // rejects, so this builds the same RSA-2048 shape marked for client auth. The
 // server has to trust it explicitly, as it would any self-signed one. Same
 // output as the server generator: the key's PEM lines, then the certificate's.
-func (s *ServerService) generateTLSClientKeyPair(commonName string) []string {
-	fail := func(err error) []string {
-		return []string{"Failed to generate TLS client keypair: ", err.Error()}
+func (s *ServerService) generateTLSClientKeyPair(commonName string) ([]string, error) {
+	fail := func(err error) ([]string, error) {
+		return nil, common.NewErrorf("failed to generate TLS client keypair: %v", err)
 	}
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -339,7 +383,7 @@ func (s *ServerService) generateTLSClientKeyPair(commonName string) []string {
 	}
 	keyPem := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDer})
 	certificatePem := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificateDer})
-	return append(strings.Split(string(keyPem), "\n"), strings.Split(string(certificatePem), "\n")...)
+	return append(strings.Split(string(keyPem), "\n"), strings.Split(string(certificatePem), "\n")...), nil
 }
 
 // generateOpenVPNStaticKey produces what `openvpn --genkey secret` writes:
@@ -350,10 +394,10 @@ func (s *ServerService) generateTLSClientKeyPair(commonName string) []string {
 // tunnel have to carry the same one. Without this the operator had to go and
 // run openvpn on the host to get a file to point static_key_path at, which is
 // not something a panel should send anyone to a shell for.
-func (s *ServerService) generateOpenVPNStaticKey() []string {
+func (s *ServerService) generateOpenVPNStaticKey() ([]string, error) {
 	material := make([]byte, 256)
 	if _, err := rand.Read(material); err != nil {
-		return []string{"Failed to generate OpenVPN static key: ", err.Error()}
+		return nil, common.NewErrorf("failed to generate OpenVPN static key: %v", err)
 	}
 	encoded := hex.EncodeToString(material)
 
@@ -366,28 +410,34 @@ func (s *ServerService) generateOpenVPNStaticKey() []string {
 	for offset := 0; offset < len(encoded); offset += 32 {
 		lines = append(lines, encoded[offset:offset+32])
 	}
-	return append(lines, "-----END OpenVPN Static key V1-----")
+	return append(lines, "-----END OpenVPN Static key V1-----"), nil
 }
 
-func (s *ServerService) generateRealityKeyPair() []string {
+func (s *ServerService) generateRealityKeyPair() ([]string, error) {
 	privateKey, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
-		return []string{"Failed to generate Reality keypair: ", err.Error()}
+		return nil, common.NewErrorf("failed to generate Reality keypair: %v", err)
 	}
 	publicKey := privateKey.PublicKey()
-	return []string{"PrivateKey: " + base64.RawURLEncoding.EncodeToString(privateKey[:]), "PublicKey: " + base64.RawURLEncoding.EncodeToString(publicKey[:])}
+	return []string{"PrivateKey: " + base64.RawURLEncoding.EncodeToString(privateKey[:]), "PublicKey: " + base64.RawURLEncoding.EncodeToString(publicKey[:])}, nil
 }
 
-func (s *ServerService) generateWireGuardKey(pk string) []string {
+// generateWireGuardKey derives the public key of pk, or makes a new pair when pk
+// is empty. A pk that does not parse is an error rather than the zero key's
+// public half, which the endpoint drawer would have saved as the public key.
+func (s *ServerService) generateWireGuardKey(pk string) ([]string, error) {
 	if len(pk) > 0 {
-		key, _ := wgtypes.ParseKey(pk)
-		return []string{key.PublicKey().String()}
+		key, err := wgtypes.ParseKey(pk)
+		if err != nil {
+			return nil, common.NewErrorf("failed to parse wireguard key: %v", err)
+		}
+		return []string{key.PublicKey().String()}, nil
 	}
 	wgKeys, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
-		return []string{"Failed to generate wireguard keypair: ", err.Error()}
+		return nil, common.NewErrorf("failed to generate wireguard keypair: %v", err)
 	}
-	return []string{"PrivateKey: " + wgKeys.String(), "PublicKey: " + wgKeys.PublicKey().String()}
+	return []string{"PrivateKey: " + wgKeys.String(), "PublicKey: " + wgKeys.PublicKey().String()}, nil
 }
 
 func (s *ServerService) GetDatabaseInfo() map[string]int64 {

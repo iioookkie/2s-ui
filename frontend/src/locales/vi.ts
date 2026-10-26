@@ -926,6 +926,7 @@ export default {
   },
   tls : {
     enable: "Kích hoạt TLS",
+    sniRequired: "Hãy nhập SNI trước: chứng chỉ hoặc khóa ECH được tạo cho tên này.",
     usePath: "Sử dụng đường dẫn",
     useText: "Sử dụng văn bản",
     certPath: "Đường dẫn tệp chứng chỉ",

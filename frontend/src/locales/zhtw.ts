@@ -926,6 +926,7 @@ export default {
   },
   tls : {
     enable: "啟用 TLS",
+    sniRequired: "請先填寫 SNI：憑證或 ECH 金鑰是依這個名稱產生的。",
     usePath: "使用外部路徑",
     useText: "使用文件內容",
     certPath: "證書文件路徑",

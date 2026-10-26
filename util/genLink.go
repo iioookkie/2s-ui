@@ -173,8 +173,12 @@ func prepareTls(t *model.Tls) map[string]interface{} {
 
 	for k, v := range iTls {
 		switch k {
-		case "enabled", "server_name", "alpn":
+		case "enabled", "alpn":
 			oTls[k] = v
+		case "server_name":
+			if name := TlsServerName(iTls); name != "" {
+				oTls[k] = name
+			}
 		case "reality":
 			// Both assertions used to be bare and panicked on a row whose
 			// server half carries reality while its client half does not --
@@ -340,7 +344,7 @@ func naiveLink(
 		var params []LinkParam
 		params = append(params, LinkParam{"padding", "1"})
 		if tls, ok := addr["tls"].(map[string]interface{}); ok {
-			if sni, ok := tls["server_name"].(string); ok {
+			if sni := TlsServerName(tls); sni != "" {
 				params = append(params, LinkParam{"peer", sni})
 			}
 			if alpnList := AsStringList(tls["alpn"]); len(alpnList) > 0 {
@@ -1035,7 +1039,7 @@ func getTlsParams(params *[]LinkParam, tls map[string]interface{}, protocol stri
 			*params = append(*params, LinkParam{"fp", fingerprint})
 		}
 	}
-	if sni, ok := tls["server_name"].(string); ok {
+	if sni := TlsServerName(tls); sni != "" {
 		*params = append(*params, LinkParam{"sni", sni})
 	}
 	if alpnList := AsStringList(tls["alpn"]); len(alpnList) > 0 {

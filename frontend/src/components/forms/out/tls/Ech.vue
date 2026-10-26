@@ -31,8 +31,6 @@
 
 <script lang="ts" setup>
 import { computed, ref } from 'vue'
-import { push } from 'notivue'
-import { i18n } from '@/locales'
 import HttpUtils from '@/plugins/httputil'
 import { ech as echType } from '@/types/tls'
 import Field from '@/components/ui/Field.vue'
@@ -40,7 +38,9 @@ import Btn from '@/components/ui/Btn.vue'
 import Ico from '@/components/ui/Ico.vue'
 import Segmented from '@/components/ui/Segmented.vue'
 
-const props = defineProps<{ iTls: any; oTls: any }>()
+// requireSni is the drawer's: it owns the SNI field, which it switches on and
+// focuses when the name ECH is generated for is still empty.
+const props = defineProps<{ iTls: any; oTls: any; requireSni: () => boolean }>()
 
 const useEchPath = ref<string | number>(props.iTls?.ech?.key ? 1 : 0)
 const loading = ref(false)
@@ -62,49 +62,46 @@ const echConfigText = computed({
 })
 
 const genECH = async () => {
+  if (!props.requireSni()) return
   loading.value = true
   const msg = await HttpUtils.get('api/keypairs', {
     k: 'ech',
-    o: props.iTls.server_name ?? "''",
+    // The ECH public name; the panel refuses one that is not a domain.
+    o: props.iTls.server_name,
   })
   loading.value = false
+  // A failure is success:false, already shown by HttpUtils; success has lines.
   if (msg.success && props.iTls.ech && props.oTls.ech) {
     props.iTls.ech.key_path = undefined
     useEchPath.value = 1
-    if (msg.obj.length > 0) {
-      const config = <string[]>[]
-      const key = <string[]>[]
-      let isConfig = false
-      let isKey = false
+    const config = <string[]>[]
+    const key = <string[]>[]
+    let isConfig = false
+    let isKey = false
 
-      msg.obj.forEach((line: string) => {
-        if (line === '-----BEGIN ECH CONFIGS-----') {
-          isConfig = true
-          isKey = false
-          config.push(line)
-        } else if (line === '-----END ECH CONFIGS-----') {
-          isConfig = false
-          config.push(line)
-        } else if (line === '-----BEGIN ECH KEYS-----') {
-          isKey = true
-          isConfig = false
-          key.push(line)
-        } else if (line === '-----END ECH KEYS-----') {
-          isKey = false
-          key.push(line)
-        } else if (isConfig) {
-          config.push(line)
-        } else if (isKey) {
-          key.push(line)
-        }
-      })
-      props.iTls.ech.key = key ?? undefined
-      props.oTls.ech.config = config ?? undefined
-    } else {
-      push.error({
-        message: i18n.global.t('failed') + ': ' + msg.obj,
-      })
-    }
+    msg.obj.forEach((line: string) => {
+      if (line === '-----BEGIN ECH CONFIGS-----') {
+        isConfig = true
+        isKey = false
+        config.push(line)
+      } else if (line === '-----END ECH CONFIGS-----') {
+        isConfig = false
+        config.push(line)
+      } else if (line === '-----BEGIN ECH KEYS-----') {
+        isKey = true
+        isConfig = false
+        key.push(line)
+      } else if (line === '-----END ECH KEYS-----') {
+        isKey = false
+        key.push(line)
+      } else if (isConfig) {
+        config.push(line)
+      } else if (isKey) {
+        key.push(line)
+      }
+    })
+    props.iTls.ech.key = key
+    props.oTls.ech.config = config
   }
 }
 </script>

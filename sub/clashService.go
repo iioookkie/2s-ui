@@ -381,7 +381,7 @@ func (s *ClashService) ConvertToClashMeta(outbounds *[]map[string]interface{}, b
 			if fp := clashFingerprint(tls); fp != "" {
 				proxy["client-fingerprint"] = fp
 			}
-			if sni, ok := tls["server_name"].(string); ok {
+			if sni := util.TlsServerName(tls); sni != "" {
 				if t == "vless" || t == "vmess" {
 					proxy["servername"] = sni
 				} else {
@@ -467,7 +467,7 @@ func (s *ClashService) ConvertToClashMeta(outbounds *[]map[string]interface{}, b
 					if host, ok := transport["host"].(string); ok && host != "" {
 						wsHeaders["Host"] = host
 					} else if isTls {
-						if sni, ok := tls["server_name"].(string); ok && sni != "" {
+						if sni := util.TlsServerName(tls); sni != "" {
 							wsHeaders["Host"] = sni
 						}
 					}
@@ -640,7 +640,7 @@ func shadowTlsPlugin(proxy map[string]interface{}, target map[string]interface{}
 		opts["version"] = int(version)
 	}
 	if tls, ok := target["tls"].(map[string]interface{}); ok {
-		if sni, _ := tls["server_name"].(string); sni != "" {
+		if sni := util.TlsServerName(tls); sni != "" {
 			opts["host"] = sni
 		}
 		if fp := clashFingerprint(tls); fp != "" {

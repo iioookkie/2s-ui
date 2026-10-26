@@ -935,6 +935,7 @@ export default {
   },
   tls: {
     enable: "Enable TLS",
+    sniRequired: "Set the SNI first: the certificate or ECH keys are generated for that name.",
     usePath: "Use Path",
     useText: "Use Text",
     certPath: "Certificate File Path",

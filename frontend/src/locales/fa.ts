@@ -926,6 +926,7 @@ export default {
   },
   tls: {
     enable: "فعالسازی رمزنگاری",
+    sniRequired: "ابتدا SNI را وارد کنید: گواهی یا کلیدهای ECH برای همین نام ساخته می‌شوند.",
     usePath: "مسیر فایل",
     useText: "متن گواهی",
     certPath: "مسیر فایل گواهی",
