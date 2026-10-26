@@ -169,6 +169,7 @@ export default {
   extController: "External controller",
   secret: "Secret",
   v2rayApi: "V2Ray API",
+  debug: "Debug",
   statsEnable: "Statistics",
   lastLogin: "Last login",
   date: "Date",

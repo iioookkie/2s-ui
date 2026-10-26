@@ -920,6 +920,8 @@ export default {
       defaultMode: "Chế độ mặc định",
       allowOrigin: "Cho phép nguồn gốc",
       allowPrivate: "Cho phép mạng riêng",
+      gcPercent: "Phần trăm GC",
+      debugPublic: "Lắng nghe ngoài địa chỉ loopback sẽ mở các endpoint gỡ lỗi mà không cần xác thực: bất kỳ ai truy cập được cổng này đều có thể tải bản dump bộ nhớ chứa thông tin đăng nhập và khóa của người dùng.",
     },
   },
   tls : {

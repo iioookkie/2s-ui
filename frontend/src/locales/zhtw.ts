@@ -920,6 +920,8 @@ export default {
       defaultMode: "預設模式",
       allowOrigin: "允許來源",
       allowPrivate: "允許私人網路",
+      gcPercent: "GC 百分比",
+      debugPublic: "監聽非回環位址會把偵錯介面無驗證地暴露出去：能連到這個連接埠的人都能下載記憶體快照，裡面有用戶端憑證和金鑰。",
     },
   },
   tls : {

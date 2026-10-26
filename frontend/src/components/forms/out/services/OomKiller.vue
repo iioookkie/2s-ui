@@ -21,25 +21,16 @@
 </template>
 
 <script lang="ts" setup>
-import { computed } from 'vue'
 import Field from '@/components/ui/Field.vue'
 import SectionLabel from '@/components/ui/SectionLabel.vue'
+import { textField } from '@/plugins/formField'
 
 const props = defineProps<{ data: any }>()
 
-// Every field is optional and cleared rather than stored empty: sing-box
-// rejects "" for a byte size or a duration, so a blank box has to leave none.
-const bind = (key: string) => computed({
-  get: () => props.data?.[key] ?? '',
-  set: (v: string) => {
-    const trimmed = (v ?? '').trim()
-    if (trimmed) props.data[key] = trimmed
-    else delete props.data[key]
-  },
-})
-
-const memoryLimit = bind('memory_limit')
-const safetyMargin = bind('safety_margin')
-const minInterval = bind('min_interval')
-const maxInterval = bind('max_interval')
+// Every field is optional and cleared rather than stored empty.
+const owner = () => props.data
+const memoryLimit = textField(owner, 'memory_limit')
+const safetyMargin = textField(owner, 'safety_margin')
+const minInterval = textField(owner, 'min_interval')
+const maxInterval = textField(owner, 'max_interval')
 </script>

@@ -145,6 +145,41 @@ func (s *ConfigService) GetConfig(data string) (*[]byte, error) {
 	return &rawConfig, nil
 }
 
+// validateBaseConfig refuses a base config the core could not parse (see
+// Core.ValidateConfig for what that does not cover). The save restarts the core
+// after the commit, and a config sing-box cannot parse left it down -- retried
+// by the watchdog every few seconds -- until someone found the field: a
+// memory_limit of "512mb512mb", a gc_percent of 80.5.
+//
+// Only the base is judged, shaped the way GetConfig shapes it (keys
+// SingBoxConfig does not list are dropped there too) and with the tables left
+// out. Parsing checks each field on its own, so the tables add nothing for the
+// base -- but one stored row the core cannot read would refuse every base save,
+// including the log level an operator raises to find out why the core is down.
+//
+// Anything but a JSON object is refused first: an empty body used to be stored
+// as null, a restart with no log, dns or route.
+func (s *ConfigService) validateBaseConfig(data json.RawMessage) error {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(data, &root); err != nil || root == nil {
+		return common.NewErrorf("invalid config: the base config must be a JSON object")
+	}
+	var base SingBoxConfig
+	if err := json.Unmarshal(data, &base); err != nil {
+		return common.NewErrorf("invalid config: %v", err)
+	}
+	// Replaced from the tables on every start.
+	base.Inbounds, base.Outbounds, base.Services, base.Endpoints = nil, nil, nil, nil
+	rawConfig, err := json.Marshal(base)
+	if err != nil {
+		return err
+	}
+	if err = corePtr.ValidateConfig(rawConfig); err != nil {
+		return common.NewErrorf("invalid config: %v", err)
+	}
+	return nil
+}
+
 // checkRuleSetDownloads refuses a base config that leaves a remote rule-set on
 // either download form sing-box 1.14 deprecated and 1.16 removes: the legacy
 // download_detour, or no client at all with no default client declared, which
@@ -156,8 +191,8 @@ func (s *ConfigService) GetConfig(data string) (*[]byte, error) {
 // configs were made explicit once (database.migrateExplicitRuleSetHTTPClients);
 // this keeps every later save, the API's included, from putting either back.
 //
-// A config the panel cannot read is not judged here: SaveConfig and then the
-// core refuse it on their own terms.
+// A config the panel cannot read is not judged here: validateBaseConfig, which
+// Save runs right after this, refuses it.
 func checkRuleSetDownloads(data json.RawMessage) error {
 	var root map[string]any
 	if err := json.Unmarshal(data, &root); err != nil {
@@ -499,6 +534,17 @@ func (s *ConfigService) Save(obj string, act string, data json.RawMessage, initU
 	// saved.
 	var restartCore bool
 
+	// Judged before the transaction: neither needs it, and the write lock BEGIN
+	// takes would hold the stats flush and every other save behind them.
+	if obj == "config" {
+		if err = checkRuleSetDownloads(data); err != nil {
+			return nil, err
+		}
+		if err = s.validateBaseConfig(data); err != nil {
+			return nil, err
+		}
+	}
+
 	// See HoldCore. Released before the restart below, which needs the write
 	// side, and before StartCore, which only tries it.
 	startMu.RLock()
@@ -554,9 +600,7 @@ func (s *ConfigService) Save(obj string, act string, data json.RawMessage, initU
 	case "endpoints":
 		restartCore, err = s.EndpointService.Save(tx, act, data)
 	case "config":
-		if err = checkRuleSetDownloads(data); err != nil {
-			return nil, err
-		}
+		// Checked above, ahead of the transaction.
 		err = s.SettingService.SaveConfig(tx, data)
 		if err != nil {
 			return nil, err

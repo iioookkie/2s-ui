@@ -80,15 +80,43 @@ func (c *Core) SetStateForTest(isRunning bool, instance *Box) {
 	c.instance = instance
 }
 
-func (c *Core) Start(sbConfig []byte) error {
+// ValidateConfig parses a whole sing-box config the way Start does, without
+// building or starting anything, so that a save can refuse a config the next
+// start could not even read: a malformed value, an unknown field, a removed
+// option. That is all it checks. What only NewBox or Start find -- a tag that
+// names nothing, a port another socket holds -- still passes and fails the
+// restart. Parsing needs no running core: the protocol registries live on c.ctx,
+// not on the box.
+func (c *Core) ValidateConfig(sbConfig []byte) error {
+	_, err := c.parseConfig(sbConfig)
+	return err
+}
+
+// parseConfig is the one definition of a config the core can read, shared by
+// Start and ValidateConfig so that a save cannot accept what a start refuses.
+// Anything else NewBox checks before it builds belongs here too.
+func (c *Core) parseConfig(sbConfig []byte) (option.Options, error) {
 	var opt option.Options
+	if err := opt.UnmarshalJSONContext(c.ctx, sbConfig); err != nil {
+		return opt, err
+	}
+	if opt.Experimental != nil && opt.Experimental.Debug != nil {
+		if err := checkDebugOptions(*opt.Experimental.Debug); err != nil {
+			return opt, err
+		}
+	}
+	return opt, nil
+}
+
+func (c *Core) Start(sbConfig []byte) error {
 	// Returned, not just logged. A config sing-box cannot parse left opt at
 	// its zero value and carried on: NewBox happily builds a box with no
 	// inbounds at all, Start succeeds and IsRunning reports true -- so the
 	// five-second watchdog sees a healthy core and never retries, and the
 	// panel serves nobody while looking fine. Failing here routes it through
 	// the start cooldown and the CoreCrash notification instead.
-	if err := opt.UnmarshalJSONContext(c.ctx, sbConfig); err != nil {
+	opt, err := c.parseConfig(sbConfig)
+	if err != nil {
 		return common.NewErrorf("unmarshal sing-box config: %v", err)
 	}
 

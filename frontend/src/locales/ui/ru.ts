@@ -169,6 +169,7 @@ export default {
   extController: "Внешний контроллер",
   secret: "Секрет",
   v2rayApi: "V2Ray API",
+  debug: "Отладка",
   statsEnable: "Статистика",
   lastLogin: "Последний вход",
   date: "Дата",

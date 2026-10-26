@@ -169,6 +169,7 @@ export default {
   extController: "外部控制器",
   secret: "密鑰",
   v2rayApi: "V2Ray API",
+  debug: "偵錯",
   statsEnable: "統計",
   lastLogin: "最近登入",
   date: "日期",

@@ -63,3 +63,20 @@ export function valueField<T>(owner: () => any, key: string, fallback: T): Writa
     set: (v: T) => { owner()[key] = v },
   })
 }
+
+/**
+ * Optional text: trimmed on write, and a blank box removes the key rather than
+ * storing "". sing-box refuses an empty string for a byte size or a duration
+ * (memory_limit, min_interval), so leaving one behind fails the whole config.
+ */
+export function textField(owner: () => any, key: string): WritableComputedRef<string> {
+  return computed({
+    get: () => owner()?.[key] ?? '',
+    set: (v: string) => {
+      const o = owner()
+      const trimmed = (v ?? '').trim()
+      if (trimmed) o[key] = trimmed
+      else delete o[key]
+    },
+  })
+}

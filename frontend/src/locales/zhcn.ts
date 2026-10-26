@@ -920,6 +920,8 @@ export default {
       defaultMode: "默认模式",
       allowOrigin: "允许来源",
       allowPrivate: "允许私有网络",
+      gcPercent: "GC 百分比",
+      debugPublic: "监听非回环地址会把调试接口无认证地暴露出去：能连到这个端口的人都能下载内存快照，里面有客户端凭据和密钥。",
     },
   },
   tls : {

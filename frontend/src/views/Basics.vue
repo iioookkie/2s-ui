@@ -190,6 +190,24 @@
               <ChipSelect v-model="appConfig.experimental.v2ray_api.stats.users" :options="clientOptions" :label="$t('pages.clients')" :placeholder="$t('ui.selectHint')" />
             </div>
           </template>
+
+          <!-- Debug -->
+          <div class="sub-label">{{ $t('ui.debug') }}</div>
+          <div style="margin-bottom: 12px;"><SwitchLabel v-model="enableDebug" :label="$t('enable')" /></div>
+          <template v-if="appConfig.experimental.debug">
+            <div class="field-grid">
+              <Field :label="$t('objects.listen')" :mb="0">
+                <input class="input mono" v-model="debugListen" placeholder="127.0.0.1:6060" />
+              </Field>
+              <Field :label="$t('types.oomKiller.memoryLimit')" :mb="0">
+                <input class="input mono" v-model="debugMemoryLimit" placeholder="200mb" />
+              </Field>
+              <Field :label="$t('basic.exp.gcPercent')" :mb="0">
+                <input class="input mono" type="number" step="1" v-model.number="debugGcPercent" placeholder="100" />
+              </Field>
+            </div>
+            <MHint v-if="debugListenPublic" style="margin-top: 12px;">{{ $t('basic.exp.debugPublic') }}</MHint>
+          </template>
         </div>
       </div>
 
@@ -234,6 +252,7 @@ import { computed, onBeforeMount, ref, watch } from 'vue'
 import Data from '@/store/modules/data'
 import { Config, Ntp } from '@/types/config'
 import { FindDiff } from '@/plugins/utils'
+import { textField } from '@/plugins/formField'
 import Btn from '@/components/ui/Btn.vue'
 import Ico from '@/components/ui/Ico.vue'
 import Field from '@/components/ui/Field.vue'
@@ -558,6 +577,54 @@ const allowPrivateNetwork = computed({
 const enableV2rayApi = computed({
   get() { return appConfig.value.experimental.v2ray_api != undefined },
   set(v: boolean) { appConfig.value.experimental.v2ray_api = v ? { listen: '127.0.0.1:8080', stats: { enabled: false, inbounds: [], outbounds: [], users: [] } } : undefined }
+})
+
+const enableDebug = computed({
+  get() { return appConfig.value.experimental.debug != undefined },
+  set(v: boolean) { appConfig.value.experimental.debug = v ? {} : undefined }
+})
+
+// The fields render behind v-if on the debug block, so it exists when written.
+const debugOwner = () => appConfig.value.experimental.debug
+const debugListen = textField(debugOwner, 'listen')
+const debugMemoryLimit = textField(debugOwner, 'memory_limit')
+
+// v-model.number hands back "" for an emptied box. A fraction is stored as typed
+// and the save refuses it: sing-box takes an integer.
+const debugGcPercent = computed({
+  get: () => appConfig.value.experimental.debug?.gc_percent ?? '',
+  set: (v: number | string) => {
+    const debug = appConfig.value.experimental.debug
+    if (!debug) return
+    if (typeof v == 'number' && !isNaN(v)) debug.gc_percent = v
+    else delete debug.gc_percent
+  },
+})
+
+// The names the stock /etc/hosts of the common distributions maps to loopback.
+// Not *.localhost: Go's resolver makes no such promise for those.
+const loopbackNames = ['localhost', 'localhost.localdomain', 'ip6-localhost', 'ip6-loopback']
+
+// The debug endpoints carry no authentication, and a heap profile holds every
+// client's credentials. Anything but a loopback host -- an empty one, as in
+// ":6060", is every interface -- serves them to whoever can reach the port.
+const debugListenPublic = computed(() => {
+  const listen = appConfig.value.experimental.debug?.listen
+  if (!listen) return false
+  let host = listen
+  if (listen.startsWith('[')) host = listen.slice(0, listen.indexOf(']') + 1)
+  else if (listen.includes(':')) host = listen.slice(0, listen.lastIndexOf(':'))
+  if (host == '') return true
+  // URL spells an address one way: an expanded IPv6 such as 0:0:0:0:0:0:0:1
+  // comes back as [::1], a v4-mapped one in hex (::ffff:127.0.0.1 is
+  // [::ffff:7f00:1]), and the host lower-cased. One it cannot read is warned
+  // about rather than vouched for.
+  try {
+    host = new URL('http://' + host).hostname.replace(/\.$/, '')
+  } catch {
+    return true
+  }
+  return !(loopbackNames.includes(host) || host == '[::1]' || /^127\./.test(host) || /^\[::ffff:7f[0-9a-f]{2}:/.test(host))
 })
 
 const origin = computed({

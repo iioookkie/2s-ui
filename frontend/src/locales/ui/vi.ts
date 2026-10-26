@@ -169,6 +169,7 @@ export default {
   extController: "Bộ điều khiển ngoài",
   secret: "Mã bí mật",
   v2rayApi: "V2Ray API",
+  debug: "Gỡ lỗi",
   statsEnable: "Thống kê",
   lastLogin: "Đăng nhập gần nhất",
   date: "Ngày",

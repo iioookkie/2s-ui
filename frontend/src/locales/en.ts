@@ -929,6 +929,8 @@ export default {
       defaultMode: "Default Mode",
       allowOrigin: "Allow Origin",
       allowPrivate: "Allow Private Network",
+      gcPercent: "GC Percent",
+      debugPublic: "Listening beyond loopback serves the debug endpoints without authentication: anyone who can reach this port can download memory dumps that contain client credentials and keys.",
     },
   },
   tls: {

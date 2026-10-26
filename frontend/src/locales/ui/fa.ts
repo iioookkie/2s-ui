@@ -169,6 +169,7 @@ export default {
   extController: "کنترلر خارجی",
   secret: "رمز محرمانه",
   v2rayApi: "V2Ray API",
+  debug: "اشکال‌زدایی",
   statsEnable: "آمار",
   lastLogin: "آخرین ورود",
   date: "تاریخ",
