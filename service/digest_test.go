@@ -103,16 +103,17 @@ func TestClientAlertDigest(t *testing.T) {
 		}
 	}
 
-	seed(model.Client{Name: "out-of-traffic", Enable: false, Volume: 10 * gib, Up: 11 * gib})
+	seed(model.Client{Name: "out-of-traffic", Desc: "alice", Enable: false, Volume: 10 * gib, Up: 11 * gib})
 	seed(model.Client{Name: "out-of-time", Enable: false, Expiry: now - day})
-	seed(model.Client{Name: "expires-tomorrow", Enable: true, Expiry: now + day})
+	seed(model.Client{Name: "expires-tomorrow", Desc: "bob", Enable: true, Expiry: now + day})
 	// Switched off by hand, not by running out: not a depleted account.
 	seed(model.Client{Name: "paused-by-operator", Enable: false})
 	seed(model.Client{Name: "healthy", Enable: true})
 
 	got := ClientAlertDigest("en")
 
-	for _, name := range []string{"out-of-traffic", "out-of-time", "expires-tomorrow"} {
+	// Both lists name a client with its description (#261).
+	for _, name := range []string{"out-of-traffic (alice)", "out-of-time", "expires-tomorrow (bob)"} {
 		if !strings.Contains(got, name) {
 			t.Errorf("%s is missing from the digest:\n%s", name, got)
 		}

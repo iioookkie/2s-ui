@@ -82,3 +82,60 @@ func TestClientBoundTo(t *testing.T) {
 		}
 	}
 }
+
+// A picker button carries the description (#261) but only a bounded part of
+// it, and never at the cost of the name it is matched by.
+func TestPickLabel(t *testing.T) {
+	cases := []struct{ name, desc, want string }{
+		{"gN3qa8ScNY5LqTz", "", "gN3qa8ScNY5LqTz"},
+		{"gN3qa8ScNY5LqTz", "小龙", "gN3qa8ScNY5LqTz (小龙)"},
+		{"gN3qa8ScNY5LqTz", "小龙的手机和平板电脑还有电视", "gN3qa8ScNY5LqTz (小龙的手机和平板电脑还…)"},
+		{"a-very-long-client-name-indeed", "x", "a-very-long-client-name-indeed (x)"},
+	}
+	for _, c := range cases {
+		if got := pickLabel(model.Client{Name: c.name, Desc: c.desc}); got != c.want {
+			t.Errorf("pickLabel(%q, %q) = %q, want %q", c.name, c.desc, got, c.want)
+		}
+	}
+}
+
+// The bot finds a client by the description that names it to a person (#261),
+// as the panel's own search does, alongside name, remark and group.
+func TestClientSearch(t *testing.T) {
+	logger.InitLogger(logging.CRITICAL)
+
+	dir := t.TempDir()
+	if err := database.InitDB(filepath.Join(dir, "search.db")); err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := database.CloseDBForTest(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
+	db := database.GetDB()
+	for _, c := range []model.Client{
+		{Name: "gN3qa8", Desc: "小龙"},
+		{Name: "nprGX5", Remark: "十七"},
+		{Name: "96dA7Q", Group: "family"},
+	} {
+		c.Inbounds = json.RawMessage(`[]`)
+		c.Links = json.RawMessage(`[]`)
+		c.Config = json.RawMessage(`{}`)
+		if err := db.Create(&c).Error; err != nil {
+			t.Fatalf("seed %s: %v", c.Name, err)
+		}
+	}
+
+	for query, want := range map[string]string{
+		"小龙": "gN3qa8", "qa8": "gN3qa8", "十七": "nprGX5", "fam": "96dA7Q",
+	} {
+		var names []string
+		if err := clientSearch(query).Pluck("name", &names).Error; err != nil {
+			t.Fatalf("search %q: %v", query, err)
+		}
+		if len(names) != 1 || names[0] != want {
+			t.Errorf("search %q found %v, want [%s]", query, names, want)
+		}
+	}
+}

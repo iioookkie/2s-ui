@@ -10,6 +10,7 @@ import (
 	"github.com/shenaba/2s-ui/database"
 	"github.com/shenaba/2s-ui/database/model"
 	"github.com/shenaba/2s-ui/service"
+	"github.com/shenaba/2s-ui/service/notify"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -109,7 +110,7 @@ func sendBindPrompt(ctx context.Context, b *bot.Bot, chatID int64, c model.Clien
 			OneTimeKeyboard: true,
 		}
 	}
-	reply(ctx, b, chatID, t("bind.prompt", p("name", c.Name)), markup)
+	reply(ctx, b, chatID, t("bind.prompt", p("name", notify.ClientLabel(c.Name, c.Desc))), markup)
 }
 
 // disarmBindPrompt takes the contact picker away when this chat has a binding

@@ -1,9 +1,17 @@
 package service
 
 import (
+	"encoding/json"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/shenaba/2s-ui/database"
+	"github.com/shenaba/2s-ui/database/model"
+	"github.com/shenaba/2s-ui/logger"
+
+	"github.com/op/go-logging"
 )
 
 func TestPresenceObserve(t *testing.T) {
@@ -76,4 +84,48 @@ func TestPresenceObserve(t *testing.T) {
 		on, _ := p.observe(at(grace), []string{"zed", "amy", "kim"}, grace)
 		expect(t, on, nil, []string{"amy", "kim", "zed"}, nil)
 	})
+}
+
+// Presence messages name each client with its description (#261), and a client
+// deleted while online still drops out of the offline batch rather than being
+// announced as gone.
+func TestPresenceLabels(t *testing.T) {
+	logger.InitLogger(logging.CRITICAL)
+
+	dir := t.TempDir()
+	if err := database.InitDB(filepath.Join(dir, "presence.db")); err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := database.CloseDBForTest(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
+	db := database.GetDB()
+	for _, c := range []model.Client{
+		{Name: "gN3qa8", Desc: "小龙", Enable: true},
+		{Name: "nprGX5", Desc: "十七", Enable: true},
+		{Name: "plain", Enable: true},
+	} {
+		c.Inbounds = json.RawMessage(`[]`)
+		c.Links = json.RawMessage(`[]`)
+		c.Config = json.RawMessage(`{}`)
+		if err := db.Create(&c).Error; err != nil {
+			t.Fatalf("seed %s: %v", c.Name, err)
+		}
+	}
+
+	on, off := presenceLabels([]string{"gN3qa8", "plain"}, []string{"deleted", "nprGX5"})
+	if want := []string{"gN3qa8 (小龙)", "plain"}; !reflect.DeepEqual(on, want) {
+		t.Errorf("online %v, want %v", on, want)
+	}
+	if want := []string{"nprGX5 (十七)"}; !reflect.DeepEqual(off, want) {
+		t.Errorf("offline %v, want %v", off, want)
+	}
+
+	// The bot's /online keeps a name it has no row for, bare.
+	got := ClientLabels([]string{"nprGX5", "on-a-node"})
+	if want := []string{"nprGX5 (十七)", "on-a-node"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("ClientLabels %v, want %v", got, want)
+	}
 }

@@ -112,16 +112,16 @@ func ClientAlertDigest(lang string) string {
 
 	var b strings.Builder
 
-	var depleted []struct{ Name string }
+	var depleted []struct{ Name, Desc string }
 	err := db.Model(model.Client{}).
 		Where("enable = false AND ((volume > 0 AND up+down > volume) OR (expiry > 0 AND expiry < ?))", now).
-		Order("name").Select("name").Scan(&depleted).Error
+		Order("name").Select("name", "desc").Scan(&depleted).Error
 	if err != nil {
 		logger.Warning("digest: depleted clients: ", err)
 	} else if len(depleted) > 0 {
 		names := make([]string, 0, len(depleted))
 		for _, row := range depleted {
-			names = append(names, row.Name)
+			names = append(names, notify.ClientLabel(row.Name, row.Desc))
 		}
 		writeDigestSection(&b, lang, "digest.depleted", names)
 	}
@@ -131,11 +131,13 @@ func ClientAlertDigest(lang string) string {
 	if err != nil {
 		logger.Warning("digest: expiring clients: ", err)
 	} else if len(expiring) > 0 {
+		// Sorted by name before labelling: sorting the labels would let a
+		// description reorder clients whose names share a prefix.
+		sort.Slice(expiring, func(i, j int) bool { return expiring[i].Name < expiring[j].Name })
 		names := make([]string, 0, len(expiring))
 		for _, c := range expiring {
-			names = append(names, c.Name)
+			names = append(names, notify.ClientLabel(c.Name, c.Desc))
 		}
-		sort.Strings(names)
 		writeDigestSection(&b, lang, "digest.expiring", names)
 	}
 

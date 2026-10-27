@@ -45,6 +45,31 @@ func Render(e Event, lang string) string {
 	return translate(lang, key, params)
 }
 
+// ClientLabel is how the operator's messages name a client: the name, which is
+// what identifies it everywhere, then its description, which is often the only
+// part a person recognises when names are generated (#261). The description is
+// the operator's own note about the client, so RenderClient never uses this.
+//
+// Whitespace is folded so a multi-line note cannot break a list that puts one
+// client per line.
+func ClientLabel(name, desc string) string {
+	return ShortClientLabel(name, desc, 0)
+}
+
+// ShortClientLabel is ClientLabel with the description cut to at most limit
+// runes (0: uncut), for a space as narrow as a button. The name is never cut --
+// it is what the operator matches the label to.
+func ShortClientLabel(name, desc string, limit int) string {
+	folded := []rune(strings.Join(strings.Fields(desc), " "))
+	if len(folded) == 0 {
+		return name
+	}
+	if limit > 0 && len(folded) > limit {
+		folded = append(folded[:limit-1], '…')
+	}
+	return name + " (" + string(folded) + ")"
+}
+
 // RenderClient turns an event into the message its own client is sent, which is
 // a different message from the operator's rather than a translation of it: the
 // operator is told which of their clients is running out, the client is told
@@ -140,6 +165,11 @@ func describe(e Event) (string, map[string]string) {
 
 	case ClientExpiring:
 		if d, ok := e.Data.(*ClientData); ok {
+			// The label replaces the subject in the text only: Subject stays the
+			// bare name, since it is the cooldown key and the webhook's field.
+			if d.Label != "" {
+				p["subject"] = d.Label
+			}
 			if d.DaysLeft > 0 {
 				p["days"] = strconv.Itoa(d.DaysLeft)
 				return "client.expiring.days", p

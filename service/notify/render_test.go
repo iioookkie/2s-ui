@@ -112,6 +112,40 @@ func TestRenderFallsBackPerKey(t *testing.T) {
 	}
 }
 
+// Generated names say nothing to a person, so the operator's messages carry the
+// description too (#261) -- without letting a multi-line one break a list.
+func TestClientLabel(t *testing.T) {
+	cases := []struct{ name, desc, want string }{
+		{"gN3qa8", "", "gN3qa8"},
+		{"gN3qa8", "   ", "gN3qa8"},
+		{"gN3qa8", "小龙", "gN3qa8 (小龙)"},
+		{"gN3qa8", " 小龙\n 手机 ", "gN3qa8 (小龙 手机)"},
+	}
+	for _, c := range cases {
+		if got := ClientLabel(c.name, c.desc); got != c.want {
+			t.Errorf("ClientLabel(%q, %q) = %q, want %q", c.name, c.desc, got, c.want)
+		}
+	}
+}
+
+// An expiry warning's text shows the client's label, carried in Label because
+// its Subject -- the cooldown key and the webhook's machine-readable field --
+// has to stay the bare name.
+func TestExpiringShowsLabel(t *testing.T) {
+	e := Event{Kind: ClientExpiring, Subject: "gN3qa8",
+		Data: &ClientData{Label: "gN3qa8 (小龙)", DaysLeft: 2}}
+	for _, lang := range Langs {
+		if got := Render(e, lang); !strings.Contains(got, "gN3qa8 (小龙)") {
+			t.Errorf("%s: %q does not show the label", lang, got)
+		}
+	}
+	// Without a label it still names the client by the subject.
+	bare := Event{Kind: ClientExpiring, Subject: "gN3qa8", Data: &ClientData{DaysLeft: 2}}
+	if got := Render(bare, "en"); !strings.Contains(got, "gN3qa8") {
+		t.Errorf("an unlabelled warning lost the name: %q", got)
+	}
+}
+
 // The client's copy of an alert is a different message from the operator's, and
 // the difference is the point: it must not carry the panel's hostname, and it
 // must exist in every shipped language.

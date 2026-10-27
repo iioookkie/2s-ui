@@ -298,7 +298,8 @@ func onlineText() string {
 	if len(o.User) == 0 {
 		return t("online.none", nil)
 	}
-	return t("online.title", p("count", strconv.Itoa(len(o.User)))) + "\n" + strings.Join(o.User, "\n")
+	return t("online.title", p("count", strconv.Itoa(len(o.User)))) + "\n" +
+		strings.Join(service.ClientLabels(o.User), "\n")
 }
 
 func sendBackup(ctx context.Context, b *bot.Bot, chatID int64) {

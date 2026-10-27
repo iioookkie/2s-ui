@@ -662,9 +662,11 @@ func (s *StatsService) GetClusterOnlines() (onlines, error) {
 	sort.Strings(nodeUsers)
 
 	// Nodes may also host their own clients. Only names owned by this panel
-	// belong in its online count.
+	// belong in its online count -- asked about the node users alone rather
+	// than reading every client name, since this runs on every live push.
 	var names []string
-	if err := database.GetDB().Model(model.Client{}).Pluck("name", &names).Error; err != nil {
+	if err := database.GetDB().Model(model.Client{}).Where("name IN ?", nodeUsers).
+		Pluck("name", &names).Error; err != nil {
 		return onlines{}, err
 	}
 	known := make(map[string]bool, len(names))

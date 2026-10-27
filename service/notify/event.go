@@ -90,7 +90,12 @@ type OutboundData struct {
 // because DepleteJob disables a whole batch in one pass and sends one event for
 // the batch rather than one per client.
 type ClientData struct {
+	// Names are what a batched operator message lists, each a ClientLabel.
 	Names []string
+	// Label is ClientExpiring's one client as the operator's message shows it,
+	// in place of the Subject, which has to stay the bare name. Empty falls
+	// back to the Subject.
+	Label string
 	// DaysLeft / BytesLeft are only set for ClientExpiring, and only the one
 	// that actually tripped is non-zero.
 	DaysLeft  int

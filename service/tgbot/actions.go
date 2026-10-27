@@ -205,7 +205,9 @@ func onPayloadCallback(ctx context.Context, b *bot.Bot, chatID int64, payload st
 		if !c.Enable {
 			key = "client.confirmToggleOn"
 		}
-		reply(ctx, b, chatID, t(key, p("name", c.Name)),
+		// A confirmation is where the wrong client costs the most, so it names
+		// the client the way the list does.
+		reply(ctx, b, chatID, t(key, p("name", notify.ClientLabel(c.Name, c.Desc))),
 			confirmKeyboard(payloadPrefix+payloads.put("toggle!|"+arg)))
 	case "toggle!":
 		applyClient(ctx, b, chatID, arg, func(c *model.Client) (string, map[string]string) {
@@ -217,7 +219,12 @@ func onPayloadCallback(ctx context.Context, b *bot.Bot, chatID int64, payload st
 		})
 
 	case "reset":
-		reply(ctx, b, chatID, t("client.confirmReset", p("name", arg)),
+		c, err := findClient(arg)
+		if err != nil {
+			reply(ctx, b, chatID, err.Error(), mainMenu())
+			return
+		}
+		reply(ctx, b, chatID, t("client.confirmReset", p("name", notify.ClientLabel(c.Name, c.Desc))),
 			confirmKeyboard(payloadPrefix+payloads.put("reset!|"+arg)))
 	case "reset!":
 		applyClient(ctx, b, chatID, arg, func(c *model.Client) (string, map[string]string) {
@@ -274,10 +281,17 @@ func callbackChat(q *models.CallbackQuery) int64 {
 	return q.From.ID
 }
 
+// findClient reads one client by name. Only a missing row is "not found": a
+// read that failed (a busy database mid-restart) says so, rather than telling
+// the operator a client they can see in the panel does not exist.
 func findClient(name string) (*model.Client, error) {
 	var c model.Client
-	if err := database.GetDB().Model(model.Client{}).Where("name = ?", name).First(&c).Error; err != nil {
+	err := database.GetDB().Model(model.Client{}).Where("name = ?", name).First(&c).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, errors.New(t("client.notFound", p("name", name)))
+	}
+	if err != nil {
+		return nil, errors.New(t("err.read", p("detail", err.Error())))
 	}
 	return &c, nil
 }
@@ -326,7 +340,7 @@ func editClient(chatID int64, name string, mutate func(*model.Client) (string, m
 	if err := save(chatID, "clients", "edit", data); err != nil {
 		return t("err.save", p("detail", err.Error()))
 	}
-	params := p("name", c.Name)
+	params := p("name", notify.ClientLabel(c.Name, c.Desc))
 	for k, v := range extra {
 		params[k] = v
 	}
@@ -374,23 +388,8 @@ func sendClientList(ctx context.Context, b *bot.Bot, chatID int64, query string,
 	if offset < 0 {
 		offset = 0
 	}
-	// Rebuilt per use rather than shared: a GORM chain that has already run a
-	// Count carries state into the next call on it.
-	matching := func() *gorm.DB {
-		q := database.GetDB().Model(model.Client{})
-		if query != "" {
-			// LIKE reads % and _ as wildcards, so an unescaped search for
-			// "user_01" would also match "userX01" and read as a broken search.
-			like := "%" + likeEscape(query) + "%"
-			q = q.Where(
-				"name LIKE ? ESCAPE '\\' OR remark LIKE ? ESCAPE '\\' OR `group` LIKE ? ESCAPE '\\'",
-				like, like, like)
-		}
-		return q
-	}
-
 	var total int64
-	if err := matching().Count(&total).Error; err != nil {
+	if err := clientSearch(query).Count(&total).Error; err != nil {
 		reply(ctx, b, chatID, t("err.read", p("detail", err.Error())), mainMenu())
 		return
 	}
@@ -411,7 +410,7 @@ func sendClientList(ctx context.Context, b *bot.Bot, chatID int64, query string,
 	// (expiry 0) at the end instead of sorting them to the front as the
 	// smallest value. Name breaks the tie so paging is stable -- without a
 	// total order two pages can repeat one row and skip another.
-	err := matching().
+	err := clientSearch(query).
 		Order("enable ASC, CASE WHEN expiry > 0 THEN expiry ELSE 9223372036854775807 END ASC, name ASC").
 		Offset(offset).Limit(clientListLimit).Find(&clients).Error
 	if err != nil {
@@ -430,7 +429,7 @@ func sendClientList(ctx context.Context, b *bot.Bot, chatID int64, query string,
 	for _, c := range clients {
 		text.WriteString("\n" + clientLine(c))
 		picks = append(picks, models.InlineKeyboardButton{
-			Text:         c.Name,
+			Text:         pickLabel(c),
 			CallbackData: payloadPrefix + payloads.put("client|"+c.Name),
 		})
 	}
@@ -467,6 +466,24 @@ func sendClientList(ctx context.Context, b *bot.Bot, chatID int64, query string,
 	reply(ctx, b, chatID, text.String(), &models.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
+// clientSearch selects the clients a search term matches: by name, by the
+// description that names them to a person (#261), by remark or by group.
+//
+// Called afresh for every query rather than built once and shared: a GORM
+// chain that has already run a Count carries state into the next call on it.
+func clientSearch(query string) *gorm.DB {
+	q := database.GetDB().Model(model.Client{})
+	if query != "" {
+		// LIKE reads % and _ as wildcards, so an unescaped search for
+		// "user_01" would also match "userX01" and read as a broken search.
+		like := "%" + likeEscape(query) + "%"
+		q = q.Where(
+			"name LIKE ? ESCAPE '\\' OR `desc` LIKE ? ESCAPE '\\' OR remark LIKE ? ESCAPE '\\' OR `group` LIKE ? ESCAPE '\\'",
+			like, like, like, like)
+	}
+	return q
+}
+
 // buttonGrid packs picker buttons into rows.
 //
 // Three across while the list is short, two once it is long enough that names
@@ -487,6 +504,14 @@ func buttonGrid(buttons []models.InlineKeyboardButton) [][]models.InlineKeyboard
 		rows = append(rows, buttons[i:end])
 	}
 	return rows
+}
+
+// pickDescLimit bounds the description on a picker button. It is free text, and
+// two or three buttons share a row; the list above the buttons carries it whole.
+const pickDescLimit = 12
+
+func pickLabel(c model.Client) string {
+	return notify.ShortClientLabel(c.Name, c.Desc, pickDescLimit)
 }
 
 // clientPagePayload encodes one page button. The search term goes last because
@@ -526,6 +551,10 @@ func sendClientCard(ctx context.Context, b *bot.Bot, chatID int64, name string) 
 }
 
 func clientLine(c model.Client) string {
+	return notify.ClientLabel(c.Name, c.Desc) + clientState(c)
+}
+
+func clientState(c model.Client) string {
 	state := t("client.on", nil)
 	if !c.Enable {
 		state = t("client.off", nil)
@@ -534,12 +563,14 @@ func clientLine(c model.Client) string {
 	if c.Volume > 0 {
 		quota = humanBytes(c.Up+c.Down) + "/" + humanBytes(c.Volume)
 	}
-	return c.Name + " [" + state + "] " + quota
+	return " [" + state + "] " + quota
 }
 
+// clientDetail heads the card with the bare name: the description already has
+// a line of its own below, unfolded.
 func clientDetail(c model.Client) string {
 	var b strings.Builder
-	b.WriteString(clientLine(c))
+	b.WriteString(c.Name + clientState(c))
 	if c.Expiry > 0 {
 		b.WriteString("\n" + t("client.expires", p("when", timeText(c.Expiry))))
 	} else {

@@ -1011,6 +1011,7 @@ func (s *ClientService) DepleteClients() ([]uint, []string, error) {
 // tripped. Only the relevant one is set.
 type expiringClient struct {
 	Name      string
+	Desc      string
 	DaysLeft  int
 	BytesLeft int64
 	// Telegram chat to warn directly, or 0 for a client with no binding.
@@ -1056,7 +1057,7 @@ func (s *ClientService) findExpiringClients(tx *gorm.DB, dt int64) ([]expiringCl
 
 	out := make([]expiringClient, 0, len(rows))
 	for _, c := range rows {
-		e := expiringClient{Name: c.Name, TgId: c.TgId}
+		e := expiringClient{Name: c.Name, Desc: c.Desc, TgId: c.TgId}
 		left := c.Volume - c.Up - c.Down
 		// Only the margin that actually selected the row is filled in, because
 		// the renderer prefers DaysLeft when both are set. A client picked up
@@ -1099,6 +1100,19 @@ func publishClientEvents(depleted []model.Client, expiring []expiringClient) {
 		return
 	}
 
+	for _, e := range clientEvents(depleted, expiring) {
+		notify.Publish(e)
+	}
+}
+
+// clientEvents builds the events for one depletion pass.
+//
+// The operator's half names each client by its label, description included
+// (#261); Subject and Targets keep the bare name. Subject is the suppressor's
+// key and the webhook's field, and Targets is what the client itself is told --
+// the description is the operator's own note and must not reach the customer.
+func clientEvents(depleted []model.Client, expiring []expiringClient) []notify.Event {
+	var events []notify.Event
 	if len(depleted) > 0 {
 		// One event for the whole pass: disabling fifty clients at once is one
 		// thing that happened, not fifty. A disabled client is not selected by
@@ -1109,12 +1123,12 @@ func publishClientEvents(depleted []model.Client, expiring []expiringClient) {
 		names := make([]string, 0, len(depleted))
 		var targets []notify.ClientTarget
 		for _, c := range depleted {
-			names = append(names, c.Name)
+			names = append(names, notify.ClientLabel(c.Name, c.Desc))
 			if c.TgId != 0 {
 				targets = append(targets, notify.ClientTarget{Name: c.Name, TgId: c.TgId})
 			}
 		}
-		notify.Publish(notify.Event{
+		events = append(events, notify.Event{
 			Kind:    notify.ClientDepleted,
 			Subject: "batch",
 			Data:    &notify.ClientData{Names: names, Targets: targets},
@@ -1127,18 +1141,54 @@ func publishClientEvents(depleted []model.Client, expiring []expiringClient) {
 	// the client's own copy inherits that same cooldown, since both are the
 	// same event.
 	for _, c := range expiring {
-		data := &notify.ClientData{DaysLeft: c.DaysLeft, BytesLeft: c.BytesLeft}
+		data := &notify.ClientData{
+			Label:    notify.ClientLabel(c.Name, c.Desc),
+			DaysLeft: c.DaysLeft, BytesLeft: c.BytesLeft,
+		}
 		if c.TgId != 0 {
 			data.Targets = []notify.ClientTarget{{
 				Name: c.Name, TgId: c.TgId, DaysLeft: c.DaysLeft, BytesLeft: c.BytesLeft,
 			}}
 		}
-		notify.Publish(notify.Event{
+		events = append(events, notify.Event{
 			Kind:    notify.ClientExpiring,
 			Subject: c.Name,
 			Data:    data,
 		})
 	}
+	return events
+}
+
+// ClientLabels turns client names into the notify.ClientLabel the operator's
+// messages show, keeping the order. A name with no row is kept bare.
+func ClientLabels(names []string) []string {
+	descs, err := clientDescs(names)
+	if err != nil {
+		logger.Warning("read client descriptions: ", err)
+	}
+	labels := make([]string, 0, len(names))
+	for _, name := range names {
+		labels = append(labels, notify.ClientLabel(name, descs[name]))
+	}
+	return labels
+}
+
+// clientDescs maps each of names that has a client row to its description, so
+// a caller can also tell which names are no longer clients.
+func clientDescs(names []string) (map[string]string, error) {
+	descs := make(map[string]string, len(names))
+	if len(names) == 0 {
+		return descs, nil
+	}
+	var rows []struct{ Name, Desc string }
+	if err := database.GetDB().Model(model.Client{}).Where("name IN ?", names).
+		Select("name", "desc").Scan(&rows).Error; err != nil {
+		return descs, err
+	}
+	for _, r := range rows {
+		descs[r.Name] = r.Desc
+	}
+	return descs, nil
 }
 
 // changeObjName encodes a client name for the changes log.

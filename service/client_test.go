@@ -5,12 +5,14 @@ import (
 	"path/filepath"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/shenaba/2s-ui/database"
 	"github.com/shenaba/2s-ui/database/model"
 	"github.com/shenaba/2s-ui/logger"
+	"github.com/shenaba/2s-ui/service/notify"
 
 	"github.com/op/go-logging"
 
@@ -694,4 +696,43 @@ func TestSaveBulkNormalizesClientNames(t *testing.T) {
 			t.Fatal("a client was renamed to nothing")
 		}
 	})
+}
+
+// The operator is told which client by its label, description included (#261),
+// while the client's own copy and the event's Subject keep the bare name: the
+// description is the operator's note about the customer and must never reach
+// the customer's Telegram, and the Subject is the cooldown key and the webhook's
+// field.
+func TestClientEventsKeepDescriptionsFromClients(t *testing.T) {
+	const desc = "小龙 欠费30"
+	events := clientEvents(
+		[]model.Client{{Name: "gN3qa8", Desc: desc, TgId: 42}},
+		[]expiringClient{{Name: "nprGX5", Desc: desc, TgId: 43, DaysLeft: 2}},
+	)
+	if len(events) != 2 {
+		t.Fatalf("got %d events, want 2", len(events))
+	}
+
+	depleted, expiring := events[0], events[1]
+	if d := depleted.Data.(*notify.ClientData); !reflect.DeepEqual(d.Names, []string{"gN3qa8 (" + desc + ")"}) {
+		t.Errorf("depleted names %q, want the label", d.Names)
+	}
+	if d := expiring.Data.(*notify.ClientData); d.Label != "nprGX5 ("+desc+")" {
+		t.Errorf("expiring label %q, want the label", d.Label)
+	}
+	if expiring.Subject != "nprGX5" {
+		t.Errorf("expiring subject %q, want the bare name", expiring.Subject)
+	}
+
+	for _, e := range events {
+		d := e.Data.(*notify.ClientData)
+		if len(d.Targets) != 1 {
+			t.Fatalf("%s: %d targets, want 1", e.Kind, len(d.Targets))
+		}
+		for _, lang := range notify.Langs {
+			if got := notify.RenderClient(e, d.Targets[0], lang); strings.Contains(got, "小龙") {
+				t.Errorf("%s in %s tells the client the operator's note: %q", e.Kind, lang, got)
+			}
+		}
+	}
 }

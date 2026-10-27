@@ -5,8 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shenaba/2s-ui/database"
-	"github.com/shenaba/2s-ui/database/model"
 	"github.com/shenaba/2s-ui/logger"
 	"github.com/shenaba/2s-ui/service/notify"
 )
@@ -107,9 +105,7 @@ func ObservePresence() {
 	if len(cameOnline) == 0 && len(wentOffline) == 0 {
 		return
 	}
-	// A client deleted while online drops out of the list like one that left,
-	// and is not worth a message.
-	wentOffline = existingClients(wentOffline)
+	cameOnline, wentOffline = presenceLabels(cameOnline, wentOffline)
 
 	// One event per flush and direction, not per client: a node coming back
 	// brings all of its clients with it, and that is one thing that happened.
@@ -129,15 +125,24 @@ func ObservePresence() {
 	}
 }
 
-func existingClients(names []string) []string {
-	if len(names) == 0 {
-		return names
-	}
-	var kept []string
-	if err := database.GetDB().Model(model.Client{}).Where("name IN ?", names).
-		Order("name").Pluck("name", &kept).Error; err != nil {
+// presenceLabels turns both lists into the labels the messages show, in one
+// read. A client deleted while online drops out of the list like one that
+// left, and is not worth a message, so an offline name with no row is left
+// out -- unless the read failed, when nothing can be told apart.
+func presenceLabels(cameOnline, wentOffline []string) (online, offline []string) {
+	descs, err := clientDescs(append(append([]string(nil), cameOnline...), wentOffline...))
+	if err != nil {
 		logger.Warning("presence: read clients: ", err)
-		return names
 	}
-	return kept
+	for _, name := range cameOnline {
+		online = append(online, notify.ClientLabel(name, descs[name]))
+	}
+	for _, name := range wentOffline {
+		desc, ok := descs[name]
+		if !ok && err == nil {
+			continue
+		}
+		offline = append(offline, notify.ClientLabel(name, desc))
+	}
+	return online, offline
 }
